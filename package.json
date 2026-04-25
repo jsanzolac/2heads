@@ -3,11 +3,13 @@
   "version": "0.1.0",
   "description": "A tmux-backed terminal REPL for making Claude and Codex challenge each other before you decide.",
   "type": "module",
+  "license": "MIT",
   "bin": {
     "2heads": "./dist/cli.js"
   },
   "files": [
     "dist",
+    "LICENSE",
     "README.md"
   ],
   "keywords": [
