@@ -15,6 +15,7 @@ import { runDebate, type DebateOutput } from './orchestrator.js';
 import { agentDisplayName } from './prompts.js';
 import { renderChatBubble } from './chatBubble.js';
 import { TerminalUi } from './terminalUi.js';
+import { resolveFileTags } from './fileTags.js';
 
 interface CliOptions {
   rounds: number;
@@ -185,8 +186,19 @@ async function main(cliOptions: CliOptions): Promise<void> {
         continue;
       }
 
+      const fileTags = await resolveFileTags(line, workdir);
+      for (const warning of fileTags.warnings) {
+        ui.write(`${pc.yellow(warning)}\n`);
+      }
+      if (fileTags.tags.length > 0) {
+        const fileWord = fileTags.tags.length === 1 ? 'file' : 'files';
+        const paths = fileTags.tags.map((tag) => tag.path).join(', ');
+        ui.write(`${pc.dim(`Tagged ${fileTags.tags.length} ${fileWord}: ${paths}`)}\n`);
+      }
+
       await runDebate({
         userPrompt: line,
+        ...(fileTags.context ? { promptContext: fileTags.context } : {}),
         rounds,
         firstAgent,
         clients,
@@ -347,6 +359,7 @@ function formatHelp(): string {
     `${pc.cyan(':last')}  Show the latest saved answer`,
     `${pc.cyan(':attach')}  Open the tmux worker session`,
     `${pc.cyan(':quit')}  Exit`,
+    pc.dim('Files: tag local files with @path or @"path with spaces"; contents are sent only in the seeded prompts.'),
     pc.dim('Math: agents are prompted to use $...$ and $$...$$ notation for formulas.'),
     pc.dim('Sessions: Claude/Codex contexts persist inside this REPL; later turns send only the latest handoff.'),
     pc.dim('The bottom input bar stays active while agents think; typed lines are queued.'),

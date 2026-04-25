@@ -22,6 +22,7 @@ export function agentDisplayName(agent: AgentName): string {
 export interface ComposeTurnPromptInput {
   agent: AgentName;
   originalPrompt: string;
+  context?: string;
   previousAgent?: AgentName;
   previousAnswer?: string;
   includeOriginalPrompt?: boolean;
@@ -34,6 +35,15 @@ export function composeTurnPrompt(input: ComposeTurnPromptInput): string {
 
   if (input.includeOriginalPrompt ?? true) {
     sections.push('', 'User prompt:', input.originalPrompt.trim());
+    if (input.context?.trim()) {
+      sections.push(
+        '',
+        'Tagged file context:',
+        'The user referenced these files with @file tags. Treat them as read-only context.',
+        '',
+        input.context.trim()
+      );
+    }
   }
 
   if (input.previousAgent && input.previousAnswer) {

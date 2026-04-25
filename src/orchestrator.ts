@@ -6,6 +6,7 @@ import type { SessionStore } from './transcript.js';
 
 export interface DebateOptions {
   userPrompt: string;
+  promptContext?: string;
   rounds: number;
   firstAgent: AgentName;
   clients: Record<AgentName, WorkerClient>;
@@ -37,6 +38,7 @@ export async function runDebate(options: DebateOptions): Promise<DebateTurn[]> {
     const promptInput = {
       agent,
       originalPrompt: options.userPrompt,
+      ...(options.promptContext ? { context: options.promptContext } : {}),
       includeOriginalPrompt
     };
     const prompt =

@@ -17,11 +17,14 @@ describe('composeTurnPrompt', () => {
     const prompt = composeTurnPrompt({
       agent: 'codex',
       originalPrompt: 'Design an API.',
+      context: '--- BEGIN TAGGED FILE: src/api.ts ---\nexport {}\n--- END TAGGED FILE: src/api.ts ---',
       previousAgent: 'claude',
       previousAnswer: 'Use a message queue.\nInclude retries.'
     });
 
     expect(prompt).toContain('User prompt:\nDesign an API.');
+    expect(prompt).toContain('Tagged file context:');
+    expect(prompt).toContain('--- BEGIN TAGGED FILE: src/api.ts ---');
     expect(prompt).not.toContain('Conversation so far:');
     expect(prompt).toContain('Claude said this:\n\nUse a message queue.\nInclude retries.');
     expect(prompt).toContain('Push back on the previous answer before you build on it.');
@@ -32,12 +35,14 @@ describe('composeTurnPrompt', () => {
     const prompt = composeTurnPrompt({
       agent: 'claude',
       originalPrompt: 'Design an API.',
+      context: '--- BEGIN TAGGED FILE: src/api.ts ---\nexport {}\n--- END TAGGED FILE: src/api.ts ---',
       previousAgent: 'codex',
       previousAnswer: 'Use retries.',
       includeOriginalPrompt: false
     });
 
     expect(prompt).not.toContain('User prompt:');
+    expect(prompt).not.toContain('Tagged file context:');
     expect(prompt).toContain('Codex said this:\n\nUse retries.');
     expect(prompt).toContain('Look for weak assumptions, missing edge cases, factual or logical errors');
     expect(prompt).toContain('What do you think?');

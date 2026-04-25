@@ -72,6 +72,7 @@ describe('runDebate', () => {
 
     await runDebate({
       userPrompt: 'Compare these options.',
+      promptContext: '--- BEGIN TAGGED FILE: src/example.ts ---\ncontent\n--- END TAGGED FILE: src/example.ts ---',
       rounds: 2,
       firstAgent: 'claude',
       clients,
@@ -91,12 +92,16 @@ describe('runDebate', () => {
     });
 
     expect(prompts.claude[0]).toContain('User prompt:\nCompare these options.');
+    expect(prompts.claude[0]).toContain('Tagged file context:');
     expect(prompts.codex[0]).toContain('User prompt:\nCompare these options.');
+    expect(prompts.codex[0]).toContain('Tagged file context:');
     expect(prompts.claude[1]).not.toContain('User prompt:');
+    expect(prompts.claude[1]).not.toContain('Tagged file context:');
     expect(prompts.claude[1]).not.toContain('Conversation so far:');
     expect(prompts.claude[1]).toContain('Codex said this:\n\nCodex answer 1');
     expect(prompts.claude[1]).toContain('Push back on the previous answer before you build on it.');
     expect(prompts.codex[1]).not.toContain('User prompt:');
+    expect(prompts.codex[1]).not.toContain('Tagged file context:');
     expect(prompts.codex[1]).not.toContain('Conversation so far:');
     expect(prompts.codex[1]).toContain('Claude said this:\n\nClaude answer 2');
     expect(prompts.codex[1]).toContain('Push back on the previous answer before you build on it.');

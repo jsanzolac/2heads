@@ -23,6 +23,20 @@ Inside the REPL:
 - `:last` prints the last recorded model answer.
 - `:help` shows available commands.
 
+You can tag files in a prompt with `@path`, for example:
+
+```text
+Compare the CLI flow in @src/cli.ts with the worker protocol in @src/worker.ts
+```
+
+Use quotes for paths with spaces:
+
+```text
+Review @"docs/decision note.md"
+```
+
+Tagged files are resolved relative to the active workdir. Their contents are sent to Claude and Codex only in the seeded prompts for the current exchange; later model-to-model handoffs still pass only the latest answer.
+
 ## Architecture
 
 `2heads` has one foreground process and three background workers.
@@ -35,7 +49,7 @@ The foreground CLI owns the terminal UI, command parsing, transcript writing, an
 
 The workers communicate with the CLI through JSON files under `.2heads/sessions/<session-id>/`. For each turn, the CLI writes a request file, the worker picks it up, streams events back into event files, and writes a final response file. The CLI records those events and final answers into the transcript.
 
-Within one REPL run, Claude and Codex keep persistent model sessions. The first handoff seeds a model with the user prompt; later turns send only the latest model answer, relying on that model's existing session context instead of resending the whole transcript. Each handoff explicitly asks the next model to push back on the previous answer before building on it. Starting the CLI again creates fresh tmux and model sessions.
+Within one REPL run, Claude and Codex keep persistent model sessions. The first handoff seeds a model with the user prompt and any tagged file context; later turns send only the latest model answer, relying on that model's existing session context instead of resending the whole transcript. Each handoff explicitly asks the next model to push back on the previous answer before building on it. Starting the CLI again creates fresh tmux and model sessions.
 
 The recap worker is intentionally separate from the active Claude/Codex exchange. It receives the full back-and-forth once, after the exchange is done, and produces the final recap without contaminating either active debate session.
 
