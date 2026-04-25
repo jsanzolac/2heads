@@ -1,14 +1,39 @@
 {
   "name": "2heads",
   "version": "0.1.0",
-  "description": "A tmux-backed REPL that routes a prompt between Claude and Codex.",
+  "description": "A tmux-backed terminal REPL for making Claude and Codex challenge each other before you decide.",
   "type": "module",
   "bin": {
     "2heads": "./dist/cli.js"
   },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [
+    "cli",
+    "tmux",
+    "claude",
+    "codex",
+    "ai",
+    "repl",
+    "decision-making"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jsanzolac/2heads.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jsanzolac/2heads/issues"
+  },
+  "homepage": "https://github.com/jsanzolac/2heads#readme",
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "npm run build && node dist/cli.js",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
