@@ -1,0 +1,28 @@
+{
+  "name": "2heads",
+  "version": "0.1.0",
+  "description": "A tmux-backed REPL that routes a prompt between Claude and Codex.",
+  "type": "module",
+  "bin": {
+    "2heads": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "npm run build && node dist/cli.js",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "commander": "^14.0.2",
+    "execa": "^9.6.0",
+    "picocolors": "^1.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.8"
+  }
+}
