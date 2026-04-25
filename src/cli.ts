@@ -15,7 +15,7 @@ import { runDebate, type DebateOutput } from './orchestrator.js';
 import { agentDisplayName } from './prompts.js';
 import { renderChatBubble } from './chatBubble.js';
 import { TerminalUi } from './terminalUi.js';
-import { resolveFileTags } from './fileTags.js';
+import { findFileTagSuggestions, resolveFileTags } from './fileTags.js';
 
 interface CliOptions {
   rounds: number;
@@ -131,7 +131,9 @@ async function main(cliOptions: CliOptions): Promise<void> {
     recapClient.waitUntilReady(10_000)
   ]);
 
-  const ui = new TerminalUi(input, output);
+  const ui = new TerminalUi(input, output, {
+    fileSuggestions: (query) => findFileTagSuggestions(query, workdir)
+  });
   let rounds = cliOptions.rounds;
   let firstAgent = cliOptions.first;
   const debateOutput = createConsoleDebateOutput(ui);
@@ -359,7 +361,7 @@ function formatHelp(): string {
     `${pc.cyan(':last')}  Show the latest saved answer`,
     `${pc.cyan(':attach')}  Open the tmux worker session`,
     `${pc.cyan(':quit')}  Exit`,
-    pc.dim('Files: tag local files with @path or @"path with spaces"; contents are sent only in the seeded prompts.'),
+    pc.dim('Files: type @ to open the file picker; Up/Down selects, Tab inserts, quoted paths with spaces work.'),
     pc.dim('Math: agents are prompted to use $...$ and $$...$$ notation for formulas.'),
     pc.dim('Sessions: Claude/Codex contexts persist inside this REPL; later turns send only the latest handoff.'),
     pc.dim('The bottom input bar stays active while agents think; typed lines are queued.'),

@@ -24,6 +24,7 @@ describe('composeTurnPrompt', () => {
 
     expect(prompt).toContain('User prompt:\nDesign an API.');
     expect(prompt).toContain('Tagged file context:');
+    expect(prompt).toContain('Do not say you cannot open or access a tagged file unless that file is not listed below.');
     expect(prompt).toContain('--- BEGIN TAGGED FILE: src/api.ts ---');
     expect(prompt).not.toContain('Conversation so far:');
     expect(prompt).toContain('Claude said this:\n\nUse a message queue.\nInclude retries.');

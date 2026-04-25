@@ -39,7 +39,8 @@ export function composeTurnPrompt(input: ComposeTurnPromptInput): string {
       sections.push(
         '',
         'Tagged file context:',
-        'The user referenced these files with @file tags. Treat them as read-only context.',
+        'The user referenced these files with @file tags. Their contents are already included below as read-only context.',
+        'Use this context directly when answering. Do not say you cannot open or access a tagged file unless that file is not listed below.',
         '',
         input.context.trim()
       );

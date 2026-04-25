@@ -1,4 +1,4 @@
-import { open, stat } from 'node:fs/promises';
+import { open, readdir, stat } from 'node:fs/promises';
 import { isAbsolute, relative, resolve } from 'node:path';
 
 export const MAX_TAGGED_FILE_BYTES = 200_000;
@@ -14,6 +14,11 @@ export interface FileTagResolution {
   tags: FileTag[];
   warnings: string[];
   context?: string;
+}
+
+export interface FileTagSuggestion {
+  path: string;
+  kind: 'file' | 'directory';
 }
 
 interface ParsedFileTag {
@@ -71,6 +76,56 @@ export async function resolveFileTags(input: string, workdir: string): Promise<F
     warnings,
     ...(contextSections.length > 0 ? { context: contextSections.join('\n\n') } : {})
   };
+}
+
+export async function findFileTagSuggestions(
+  query: string,
+  workdir: string,
+  limit = 6
+): Promise<FileTagSuggestion[]> {
+  const cleanQuery = query.replace(/^\.?\//, '');
+  const slashIndex = cleanQuery.lastIndexOf('/');
+  const parent = slashIndex === -1 ? '' : cleanQuery.slice(0, slashIndex + 1);
+  const baseName = slashIndex === -1 ? cleanQuery : cleanQuery.slice(slashIndex + 1);
+  const parentPath = resolve(workdir, parent);
+  const parentRelative = relative(workdir, parentPath);
+
+  if (parentRelative.startsWith('..') || isAbsolute(parentRelative)) {
+    return [];
+  }
+
+  const entries = await readdir(parentPath, { withFileTypes: true }).catch(() => []);
+  const normalizedParent = parent ? parent.replace(/\/?$/, '/') : '';
+  const showHidden = baseName.startsWith('.');
+
+  return entries
+    .filter((entry) => {
+      if (!showHidden && entry.name.startsWith('.')) {
+        return false;
+      }
+
+      if (entry.isDirectory() && IGNORED_SUGGESTION_DIRS.has(entry.name)) {
+        return false;
+      }
+
+      return entry.isDirectory() || entry.isFile();
+    })
+    .filter((entry) => entry.name.toLowerCase().startsWith(baseName.toLowerCase()))
+    .sort((a, b) => {
+      if (a.isDirectory() !== b.isDirectory()) {
+        return a.isDirectory() ? -1 : 1;
+      }
+
+      return a.name.localeCompare(b.name);
+    })
+    .slice(0, limit)
+    .map((entry) => {
+      const kind = entry.isDirectory() ? 'directory' : 'file';
+      return {
+        path: `${normalizedParent}${entry.name}${kind === 'directory' ? '/' : ''}`,
+        kind
+      };
+    });
 }
 
 export function parseFileTags(input: string): ParsedFileTag[] {
@@ -139,6 +194,15 @@ function uniqueTags(tags: ParsedFileTag[]): ParsedFileTag[] {
 
   return output;
 }
+
+const IGNORED_SUGGESTION_DIRS = new Set([
+  '.2heads',
+  '.git',
+  '.npm-cache',
+  'coverage',
+  'dist',
+  'node_modules'
+]);
 
 function stripTrailingPunctuation(value: string): string {
   return value.replace(/[),.;:!?]+$/g, '');

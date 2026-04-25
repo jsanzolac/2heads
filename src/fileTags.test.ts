@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { describe, expect, it } from 'vitest';
-import { parseFileTags, resolveFileTags } from './fileTags.js';
+import { findFileTagSuggestions, parseFileTags, resolveFileTags } from './fileTags.js';
 
 describe('parseFileTags', () => {
   it('finds unquoted and quoted @file tags', () => {
@@ -44,5 +44,22 @@ describe('resolveFileTags', () => {
 
     expect(result.tags).toEqual([]);
     expect(result.warnings[0]).toContain('outside the workdir');
+  });
+});
+
+describe('findFileTagSuggestions', () => {
+  it('lists matching files and directories for the active @ query', async () => {
+    const workdir = await mkdtemp(join(tmpdir(), '2heads-tags-'));
+    await mkdir(join(workdir, 'src'));
+    await writeFile(join(workdir, 'src', 'cli.ts'), 'cli', 'utf8');
+    await writeFile(join(workdir, 'src', 'worker.ts'), 'worker', 'utf8');
+    await writeFile(join(workdir, 'README.md'), 'readme', 'utf8');
+
+    await expect(findFileTagSuggestions('s', workdir)).resolves.toEqual([
+      { path: 'src/', kind: 'directory' }
+    ]);
+    await expect(findFileTagSuggestions('src/c', workdir)).resolves.toEqual([
+      { path: 'src/cli.ts', kind: 'file' }
+    ]);
   });
 });

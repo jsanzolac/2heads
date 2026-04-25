@@ -37,6 +37,8 @@ Review @"docs/decision note.md"
 
 Tagged files are resolved relative to the active workdir. Their contents are sent to Claude and Codex only in the seeded prompts for the current exchange; later model-to-model handoffs still pass only the latest answer.
 
+In an interactive terminal, typing `@` opens a live file picker in the bottom composer. Continue typing to filter files, use Up/Down to move through matches, and press Tab to insert the selected path. Directory matches end in `/`, so you can keep navigating deeper before tagging a file.
+
 ## Architecture
 
 `2heads` has one foreground process and three background workers.

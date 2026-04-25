@@ -18,7 +18,8 @@ const INPUT_ACCENT = '\u001B[38;2;142;211;218m';
 const INPUT_DIM = '\u001B[38;2;159;166;178m';
 const CLEAR_TO_END = '\u001B[K';
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-const COMPOSER_HEIGHT = 4;
+const BASE_COMPOSER_HEIGHT = 4;
+const MAX_FILE_SUGGESTIONS = 5;
 const MIN_COMPOSER_WIDTH = 44;
 const SIDE_MARGIN = 2;
 
@@ -29,6 +30,15 @@ type TtyInput = NodeJS.ReadableStream & {
   pause: () => NodeJS.ReadableStream;
 };
 
+export interface TerminalUiOptions {
+  fileSuggestions?: (query: string) => Promise<FileCompletion[]> | FileCompletion[];
+}
+
+export interface FileCompletion {
+  path: string;
+  kind: 'file' | 'directory';
+}
+
 export class TerminalUi {
   private readonly rl: Interface | undefined;
   private readonly isTty: boolean;
@@ -36,20 +46,28 @@ export class TerminalUi {
   private readonly waiters: Array<(line: string | undefined) => void> = [];
   private readonly keypressHandler: (text: string, key: KeypressKey) => void;
   private readonly resizeHandler: () => void;
+  private readonly fileSuggestionsProvider: TerminalUiOptions['fileSuggestions'];
   private thinking: ThinkingState | undefined;
   private spinner: NodeJS.Timeout | undefined;
   private spinnerIndex = 0;
   private inputBuffer = '';
   private cursorIndex = 0;
+  private activeFileTag: ActiveFileTag | undefined;
+  private fileSuggestions: FileCompletion[] = [];
+  private selectedFileSuggestion = 0;
+  private fileSuggestionRequestId = 0;
   private rawModeEnabled = false;
+  private lastComposerHeight = 0;
   private started = false;
   private closed = false;
 
   constructor(
     private readonly input: NodeJS.ReadableStream,
-    private readonly output: NodeJS.WriteStream
+    private readonly output: NodeJS.WriteStream,
+    options: TerminalUiOptions = {}
   ) {
     this.isTty = Boolean(output.isTTY && (input as TtyInput).isTTY);
+    this.fileSuggestionsProvider = options.fileSuggestions;
     this.keypressHandler = (text, key) => {
       this.handleKeypress(text, key);
     };
@@ -283,7 +301,28 @@ export class TerminalUi {
       const line = this.inputBuffer;
       this.inputBuffer = '';
       this.cursorIndex = 0;
+      this.clearFileSuggestions();
       this.enqueue(line);
+      this.drawComposer();
+      return;
+    }
+
+    if (key.name === 'tab') {
+      if (this.applySelectedFileSuggestion()) {
+        return;
+      }
+    }
+
+    if (key.name === 'up' && this.activeFileTag) {
+      this.selectedFileSuggestion = Math.max(0, this.selectedFileSuggestion - 1);
+      this.drawComposer();
+      return;
+    }
+
+    if (key.name === 'down' && this.activeFileTag) {
+      if (this.fileSuggestions.length > 0) {
+        this.selectedFileSuggestion = Math.min(this.fileSuggestions.length - 1, this.selectedFileSuggestion + 1);
+      }
       this.drawComposer();
       return;
     }
@@ -292,6 +331,7 @@ export class TerminalUi {
       if (this.cursorIndex > 0) {
         this.inputBuffer = `${this.inputBuffer.slice(0, this.cursorIndex - 1)}${this.inputBuffer.slice(this.cursorIndex)}`;
         this.cursorIndex -= 1;
+        this.refreshFileSuggestions();
         this.drawComposer();
       }
       return;
@@ -300,6 +340,7 @@ export class TerminalUi {
     if (key.name === 'delete') {
       if (this.cursorIndex < this.inputBuffer.length) {
         this.inputBuffer = `${this.inputBuffer.slice(0, this.cursorIndex)}${this.inputBuffer.slice(this.cursorIndex + 1)}`;
+        this.refreshFileSuggestions();
         this.drawComposer();
       }
       return;
@@ -307,24 +348,28 @@ export class TerminalUi {
 
     if (key.name === 'left') {
       this.cursorIndex = Math.max(0, this.cursorIndex - 1);
+      this.refreshFileSuggestions();
       this.drawComposer();
       return;
     }
 
     if (key.name === 'right') {
       this.cursorIndex = Math.min(this.inputBuffer.length, this.cursorIndex + 1);
+      this.refreshFileSuggestions();
       this.drawComposer();
       return;
     }
 
     if (key.ctrl && key.name === 'a') {
       this.cursorIndex = 0;
+      this.refreshFileSuggestions();
       this.drawComposer();
       return;
     }
 
     if (key.ctrl && key.name === 'e') {
       this.cursorIndex = this.inputBuffer.length;
+      this.refreshFileSuggestions();
       this.drawComposer();
       return;
     }
@@ -332,12 +377,14 @@ export class TerminalUi {
     if (key.ctrl && key.name === 'u') {
       this.inputBuffer = this.inputBuffer.slice(this.cursorIndex);
       this.cursorIndex = 0;
+      this.refreshFileSuggestions();
       this.drawComposer();
       return;
     }
 
     if (key.ctrl && key.name === 'k') {
       this.inputBuffer = this.inputBuffer.slice(0, this.cursorIndex);
+      this.refreshFileSuggestions();
       this.drawComposer();
       return;
     }
@@ -353,6 +400,7 @@ export class TerminalUi {
 
     this.inputBuffer = `${this.inputBuffer.slice(0, this.cursorIndex)}${printable}${this.inputBuffer.slice(this.cursorIndex)}`;
     this.cursorIndex += printable.length;
+    this.refreshFileSuggestions();
     this.drawComposer();
   }
 
@@ -362,7 +410,7 @@ export class TerminalUi {
     }
 
     const rows = this.rows();
-    const scrollBottom = Math.max(1, rows - COMPOSER_HEIGHT);
+    const scrollBottom = Math.max(1, rows - this.composerHeight());
     this.output.write(`\u001B[1;${scrollBottom}r`);
     this.output.write(`\u001B[${scrollBottom};1H`);
   }
@@ -375,12 +423,13 @@ export class TerminalUi {
     this.output.write('\u001B[r');
     this.output.write(`\u001B[${this.rows()};1H`);
     this.output.write('\n');
+    this.lastComposerHeight = 0;
   }
 
   private writeAboveComposer(text: string): void {
     this.reserveComposerSpace();
     this.output.write(RESET);
-    this.output.write(`\u001B[${Math.max(1, this.rows() - COMPOSER_HEIGHT)};1H`);
+    this.output.write(`\u001B[${Math.max(1, this.rows() - this.composerHeight())};1H`);
     this.output.write(text);
     if (text && !text.endsWith('\n')) {
       this.output.write('\n');
@@ -393,11 +442,19 @@ export class TerminalUi {
       return;
     }
 
+    this.reserveComposerSpace();
     const rows = this.rows();
-    const startRow = Math.max(1, rows - COMPOSER_HEIGHT + 1);
+    const height = this.composerHeight();
+    const clearHeight = Math.max(this.lastComposerHeight, height);
+    const clearStartRow = Math.max(1, rows - clearHeight + 1);
+    const startRow = Math.max(1, rows - height + 1);
     const layout = this.composerLayout();
     const lines = this.renderComposerLines(layout);
     let output = '';
+
+    for (let index = 0; index < clearHeight; index += 1) {
+      output += `\u001B[${clearStartRow + index};1H\u001B[2K`;
+    }
 
     lines.forEach((line, index) => {
       output += `\u001B[${startRow + index};1H\u001B[2K${line}`;
@@ -405,6 +462,7 @@ export class TerminalUi {
 
     output += `\u001B[${startRow + 2};${layout.cursorColumn}H`;
     this.output.write(output);
+    this.lastComposerHeight = height;
   }
 
   private clearComposer(): void {
@@ -413,12 +471,14 @@ export class TerminalUi {
     }
 
     const rows = this.rows();
-    const startRow = Math.max(1, rows - COMPOSER_HEIGHT + 1);
+    const height = Math.max(this.lastComposerHeight, this.composerHeight());
+    const startRow = Math.max(1, rows - height + 1);
     let output = '';
-    for (let index = 0; index < COMPOSER_HEIGHT; index += 1) {
+    for (let index = 0; index < height; index += 1) {
       output += `\u001B[${startRow + index};1H\u001B[2K`;
     }
     this.output.write(output);
+    this.lastComposerHeight = 0;
   }
 
   private renderComposerLines(layout: ComposerLayout): string[] {
@@ -429,12 +489,14 @@ export class TerminalUi {
     const middleText = layout.visibleText || 'Ask anything';
     const inputText = layout.visibleText ? `${INPUT_FG}${middleText}` : `${INPUT_DIM}${middleText}`;
     const inputLine = padAnsi(` ${INPUT_ACCENT}+ ${INPUT_FG}You › ${inputText}`, layout.innerWidth + 2);
+    const suggestionLines = this.renderFileSuggestionLines(layout);
     const bottom = `${' '.repeat(layout.left)}${INPUT_BG}${INPUT_BORDER}╰${horizontal}╯${RESET}`;
 
     return [
       top,
       `${' '.repeat(layout.left)}${INPUT_BG}${INPUT_BORDER}│${INPUT_DIM}${statusLine}${INPUT_BORDER}│${RESET}`,
       `${' '.repeat(layout.left)}${INPUT_BG}${INPUT_BORDER}│${inputLine}${INPUT_BORDER}│${RESET}`,
+      ...suggestionLines,
       bottom
     ];
   }
@@ -475,6 +537,105 @@ export class TerminalUi {
   private columns(): number {
     return Math.max(48, this.output.columns ?? 100);
   }
+
+  private composerHeight(): number {
+    if (!this.activeFileTag) {
+      return BASE_COMPOSER_HEIGHT;
+    }
+
+    return BASE_COMPOSER_HEIGHT + 1 + Math.max(1, Math.min(this.fileSuggestions.length, MAX_FILE_SUGGESTIONS));
+  }
+
+  private refreshFileSuggestions(): void {
+    const active = findActiveFileTag(this.inputBuffer, this.cursorIndex);
+    this.activeFileTag = active;
+    this.selectedFileSuggestion = 0;
+
+    if (!active || !this.fileSuggestionsProvider) {
+      this.clearFileSuggestions();
+      return;
+    }
+
+    const requestId = ++this.fileSuggestionRequestId;
+    Promise.resolve(this.fileSuggestionsProvider(active.query))
+      .then((suggestions) => {
+        if (requestId !== this.fileSuggestionRequestId || this.closed) {
+          return;
+        }
+
+        this.fileSuggestions = suggestions.slice(0, MAX_FILE_SUGGESTIONS);
+        this.selectedFileSuggestion = Math.min(this.selectedFileSuggestion, Math.max(0, this.fileSuggestions.length - 1));
+        this.reserveComposerSpace();
+        this.drawComposer();
+      })
+      .catch(() => {
+        if (requestId !== this.fileSuggestionRequestId || this.closed) {
+          return;
+        }
+
+        this.fileSuggestions = [];
+        this.drawComposer();
+      });
+  }
+
+  private clearFileSuggestions(): void {
+    this.fileSuggestionRequestId += 1;
+    this.activeFileTag = undefined;
+    this.fileSuggestions = [];
+    this.selectedFileSuggestion = 0;
+  }
+
+  private applySelectedFileSuggestion(): boolean {
+    if (!this.activeFileTag || this.fileSuggestions.length === 0) {
+      return false;
+    }
+
+    const suggestion = this.fileSuggestions[this.selectedFileSuggestion] ?? this.fileSuggestions[0];
+    if (!suggestion) {
+      return false;
+    }
+
+    const replacement = formatFileTagReplacement(suggestion, this.activeFileTag);
+    this.inputBuffer = `${this.inputBuffer.slice(0, this.activeFileTag.start)}${replacement}${this.inputBuffer.slice(this.cursorIndex)}`;
+    this.cursorIndex = this.activeFileTag.start + replacement.length;
+
+    if (suggestion.kind === 'directory') {
+      this.refreshFileSuggestions();
+    } else {
+      this.clearFileSuggestions();
+    }
+
+    this.drawComposer();
+    return true;
+  }
+
+  private renderFileSuggestionLines(layout: ComposerLayout): string[] {
+    if (!this.activeFileTag) {
+      return [];
+    }
+
+    const query = this.activeFileTag.query ? `@${this.activeFileTag.query}` : '@';
+    const header = padAnsi(` ${INPUT_DIM}files for ${query} · ${INPUT_ACCENT}↑/↓${INPUT_DIM} select · ${INPUT_ACCENT}Tab${INPUT_DIM} insert`, layout.innerWidth + 2);
+    const rows = [
+      `${' '.repeat(layout.left)}${INPUT_BG}${INPUT_BORDER}│${header}${INPUT_BORDER}│${RESET}`
+    ];
+
+    if (this.fileSuggestions.length === 0) {
+      const line = padAnsi(` ${INPUT_DIM}No matching files`, layout.innerWidth + 2);
+      rows.push(`${' '.repeat(layout.left)}${INPUT_BG}${INPUT_BORDER}│${line}${INPUT_BORDER}│${RESET}`);
+      return rows;
+    }
+
+    this.fileSuggestions.slice(0, MAX_FILE_SUGGESTIONS).forEach((suggestion, index) => {
+      const selected = index === this.selectedFileSuggestion;
+      const marker = selected ? '›' : ' ';
+      const color = selected ? INPUT_ACCENT : INPUT_FG;
+      const line = padAnsi(` ${color}${marker} ${suggestion.path}${INPUT_FG}`, layout.innerWidth + 2);
+      rows.push(`${' '.repeat(layout.left)}${INPUT_BG}${INPUT_BORDER}│${line}${INPUT_BORDER}│${RESET}`);
+    });
+
+    return rows;
+  }
 }
 
 interface ComposerLayout {
@@ -488,6 +649,12 @@ interface KeypressKey {
   name?: string;
   ctrl?: boolean;
   meta?: boolean;
+}
+
+interface ActiveFileTag {
+  start: number;
+  query: string;
+  quoted: boolean;
 }
 
 function visibleLength(value: string): number {
@@ -508,4 +675,42 @@ function tailByWidth(value: string, width: number): string {
   }
 
   return value.slice(Math.max(0, value.length - width));
+}
+
+function findActiveFileTag(value: string, cursorIndex: number): ActiveFileTag | undefined {
+  const beforeCursor = value.slice(0, cursorIndex);
+  const atIndex = beforeCursor.lastIndexOf('@');
+  if (atIndex === -1) {
+    return undefined;
+  }
+
+  if (atIndex > 0 && !/\s/.test(beforeCursor[atIndex - 1] ?? '')) {
+    return undefined;
+  }
+
+  const raw = beforeCursor.slice(atIndex + 1);
+  if (raw.startsWith('"') || raw.startsWith("'")) {
+    const quote = raw[0] ?? '"';
+    const query = raw.slice(1);
+    if (query.includes(quote)) {
+      return undefined;
+    }
+
+    return { start: atIndex, query, quoted: true };
+  }
+
+  if (/\s/.test(raw)) {
+    return undefined;
+  }
+
+  return { start: atIndex, query: raw, quoted: false };
+}
+
+function formatFileTagReplacement(suggestion: FileCompletion, active: ActiveFileTag): string {
+  const needsQuotes = active.quoted || /\s/.test(suggestion.path);
+  if (needsQuotes) {
+    return suggestion.kind === 'directory' ? `@"${suggestion.path}` : `@"${suggestion.path}" `;
+  }
+
+  return suggestion.kind === 'directory' ? `@${suggestion.path}` : `@${suggestion.path} `;
 }
