@@ -135,7 +135,7 @@ export function buildAgentCommand(
         '',
         '--permission-mode',
         'plan',
-        ...(sessionId ? ['--session-id', sessionId] : [])
+        ...(sessionId ? ['--resume', sessionId] : [])
       ],
       stdin: prompt
     };

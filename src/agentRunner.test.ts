@@ -8,7 +8,9 @@ describe('buildAgentCommand', () => {
 
     expect(first.args).not.toContain('--no-session-persistence');
     expect(first.args).not.toContain('--session-id');
-    expect(resumed.args).toContain('--session-id');
+    expect(first.args).not.toContain('--resume');
+    expect(resumed.args).not.toContain('--session-id');
+    expect(resumed.args).toContain('--resume');
     expect(resumed.args).toContain('00000000-0000-4000-8000-000000000001');
   });
 
